@@ -665,6 +665,8 @@ plt.show()
 print(f"Saved equity curve plot to {curve_path}")"""),
 
     code_cell("""# ---------- 8. Export Artifacts ----------
+import joblib
+
 comparison_display.to_csv(os.path.join(OUT_DIR, "metrics_comparison.csv"))
 bt_summary.to_csv(os.path.join(OUT_DIR, "backtest_summary.csv"))
 
@@ -687,7 +689,18 @@ pred_df = pd.DataFrame(
 )
 pred_df.to_csv(os.path.join(OUT_DIR, "test_predictions.csv"))
 
+# ---------- Save Trained Model Objects ----------
+joblib.dump(rf, os.path.join(OUT_DIR, "rf_model.joblib"))
+xgb_reg.save_model(os.path.join(OUT_DIR, "xgb_regressor.json"))
+xgb_clf.save_model(os.path.join(OUT_DIR, "xgb_classifier.json"))
+joblib.dump(top_feats, os.path.join(OUT_DIR, "selected_features.joblib"))
+
 print(f"\\n✅ All artifacts successfully exported to ./{OUT_DIR}/")
+print("   Models saved:")
+print(f"   - rf_model.joblib           (Random Forest Regressor)")
+print(f"   - xgb_regressor.json        (XGBoost Regressor)")
+print(f"   - xgb_classifier.json       (XGBoost Classifier)")
+print(f"   - selected_features.joblib  (Top {len(top_feats)} feature names list)")
 print("Done.")""")
 ]
 
