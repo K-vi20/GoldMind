@@ -1,124 +1,145 @@
-## 🧠 LSTM–BiLSTM Ensemble Classifier (ICT Pattern-Based) — โมดูลเสริมสำหรับ GoldMind
+## 🧬 Alternative Track: Deep Learning Directional Classifier (LSTM + BiLSTM + ICT Patterns)
 
-> ส่วนนี้สรุปจากโน้ตบุ๊กทดลอง (`.ipynb`) ที่ใช้แนวทาง **Deep Learning แบบ Sequence Classification**
-> ต่างจากไปป์ไลน์หลักของ GoldMind ที่ใช้ Random Forest / XGBoost แบบ Regression บน 1-hour bar
-> โมดูลนี้เป็นแนวทางเสริม (alternative track) ที่โฟกัส **ทำนายทิศทาง (Up / Down / Neutral)** โดยผสาน
-> Technical Indicators แบบดั้งเดิมเข้ากับ **ICT (Inner Circle Trader) Price Action Patterns**
+> แนวทางเสริมของ GoldMind — แทนที่จะ**ทำนายราคา** (Regression) แบบไปป์ไลน์หลัก
+> โมดูลนี้**ทำนายทิศทาง** (Classification: Down / Neutral / Up) โดยผสาน Technical Indicator เข้ากับ ICT Price Action
 
-แนะนำให้เพิ่มเป็นหัวข้อใหม่ในโครงสร้างเดิม เช่น `## 🧬 Alternative Track: Deep Learning Directional Classifier` ต่อจากหัวข้อ "Summary of Out-of-Sample Results"
-
----
-
-### 1. ภาพรวมแนวคิด
-
-โมเดลนี้ตั้งเป้าทำนาย **ทิศทางราคาทองใน 3 ชั่วโมงข้างหน้า** เป็น 3 คลาส (Down / Neutral / Up)
-โดยรวมสัญญาณจาก 2 กลุ่ม:
-
-- **Technical Indicators แบบดั้งเดิม** — RSI, MACD, Bollinger Band Width, ATR (normalized), Stochastic, Return หลายช่วงเวลา (4h/12h/24h/72h), Cross-asset returns (DXY, VIX, SP500)
-- **ICT Price Action Patterns** — Fair Value Gap (FVG), Order Block (OB), Break of Structure / Change of Character (BOS/CHoCH), และรูปแบบแท่งเทียน (Engulfing, Hammer, Shooting Star, Doji, Inside/Outside Bar)
-
-จุดเด่นคือการนำแนวคิด ICT ซึ่งปกติใช้ในการเทรดด้วยตาเปล่า มาแปลงเป็นฟีเจอร์เชิงตัวเลขให้โมเดลเรียนรู้ได้
-
----
-
-### 2. Pipeline
+### ภาพรวมทั้งหมดใน 1 รูป
 
 ```
-1. Data Collection      → yfinance: Gold (GC=F), DXY, VIX, SP500 (2 ปีย้อนหลัง, timeframe 1H)
-2. Feature Engineering  → Indicators + ICT Patterns + Candlestick Patterns (48 features)
-3. Target Labeling      → future_return (3-bar ahead) > 0.3% = Up, < -0.3% = Down, else Neutral
-4. Feature Selection    → Mutual Information → เลือก Top 15 features
-5. Sequencing           → sliding window 48 timesteps (≈ 2 วัน) ต่อ 1 sample
-6. Train/Val/Test Split → Walk-forward แบบ chronological (80% / 10% / 10%)
-7. Scaling              → StandardScaler (fit บน train เท่านั้น)
-8. Model Training       → LSTM + BiLSTM (แยกเทรน)
-9. Stacking Ensemble    → ใช้ output ของ LSTM + BiLSTM ป้อนต่อให้ GradientBoostingClassifier (meta-model)
-10. Evaluation          → Accuracy, Classification Report, Confusion Matrix
+flowchart TD
+    A["📥 ดึงข้อมูล 4 สินทรัพย์\nGold, DXY, VIX, SP500\n(2 ปีย้อนหลัง, ราย 1 ชม.)"] --> B["🛠️ สร้าง 48 Features\nIndicator ดั้งเดิม + ICT Pattern + แท่งเทียน"]
+    B --> C["🎯 ตั้งเป้าทาย (Label)\nราคาอีก 3 ชม.ข้างหน้า\nขึ้น>0.3% / ลง<-0.3% / เฉยๆ"]
+    C --> D["📉 คัดฟีเจอร์เหลือ 15 ตัว\n(Mutual Information)"]
+    D --> E["📦 ตัดเป็นช่วงเวลา\n48 แท่งย้อนหลัง = 1 ตัวอย่าง"]
+    E --> F["✂️ แบ่งข้อมูลตามเวลา\nTrain 80% → Val 10% → Test 10%"]
+    F --> G["🧠 เทรน 2 โมเดล\nLSTM  +  BiLSTM"]
+    G --> H["🤝 รวมพลัง (Stacking)\nGradientBoosting เรียนจากผลของทั้งคู่"]
+    H --> I["✅ ทดสอบกับ Test Set\nAccuracy / Confusion Matrix"]
 ```
+
+    Loading
 
 ---
 
-### 3. สถาปัตยกรรมโมเดล
+### พูดง่าย ๆ คือ...
 
-| ส่วนประกอบ | รายละเอียด |
+โมเดลนี้พยายามตอบคำถามว่า **"3 ชั่วโมงข้างหน้า ราคาทองจะขึ้น จะลง หรือเฉย ๆ?"**
+โดยดูทั้ง (1) ตัวเลขทางเทคนิคทั่วไป เช่น RSI, MACD และ (2) "ร่องรอย" ที่นักเทรดสาย ICT ใช้ดูด้วยตาเปล่า เช่น ช่องว่างราคา (FVG) หรือจุดกลับตัวของโครงสร้างราคา (BOS/CHoCH) — แล้วเอาทั้งหมดมาป้อนให้โมเดล Deep Learning 2 ตัวช่วยกันทาย ก่อนให้โมเดลตัวที่ 3 (Gradient Boosting) มาตัดสินคำตอบสุดท้าย
+
+---
+
+### 1️⃣ ข้อมูล (Data) — เอาอะไรมาใช้บ้าง
+
+| แหล่งข้อมูล | Ticker | ใช้ทำอะไร |
+|---|---|---|
+| ทองคำ (Gold) | `GC=F` | ตัวหลักที่จะทำนาย (Open/High/Low/Close/Volume) |
+| ดัชนีดอลลาร์ (DXY) | `DX-Y.NYB` | ทองมักสวนทางดอลลาร์ |
+| ดัชนีความกลัวตลาด (VIX) | `^VIX` | วัดความผันผวน/ความกลัวในตลาด |
+| ดัชนีหุ้นสหรัฐ (S&P500) | `^GSPC` | ดูบรรยากาศตลาดหุ้นโดยรวม |
+
+- ดึงย้อนหลัง **2 ปี** ที่ความละเอียด **รายชั่วโมง** → ได้ข้อมูลดิบ **10,390 แถว**
+- พบว่า Volume ของทองเป็น 0 อยู่ **3.52%** ของแท่งทั้งหมด (ต้องระวังตอนคำนวณ % การเปลี่ยนแปลง ไม่งั้นจะเกิดค่า inf)
+
+### 2️⃣ Features — สร้างตัวแปรอะไรให้โมเดลดู (48 ตัว → คัดเหลือ 15 ตัว)
+
+**กลุ่ม A: อินดิเคเตอร์เทคนิคทั่วไป**
+> RSI, MACD (+Signal), Bollinger Band Width, ATR (ปรับสัดส่วนแล้ว), Stochastic, และ % การเปลี่ยนแปลงราคาย้อนหลัง 4 ช่วง (4 / 12 / 24 / 72 ชั่วโมง) รวมถึง % การเปลี่ยนแปลงของ DXY, VIX, SP500
+
+**กลุ่ม B: รูปแบบสไตล์ ICT (Inner Circle Trader)**
+| รูปแบบ | ความหมายแบบบ้าน ๆ |
 |---|---|
-| **LSTM** | LSTM(32, tanh) → BatchNorm → Dropout(0.3) → LSTM(16, tanh) → BatchNorm → Dropout(0.3) → Dense(8, relu) → BatchNorm → Dense(3, softmax) |
-| **BiLSTM** | โครงสร้างเดียวกันแต่ห่อด้วย `Bidirectional` ทุกชั้น LSTM |
-| **Regularization** | L2 (1e-4) ทุกชั้นหลัก, Dropout 0.3, Class weighting (แก้ปัญหา class imbalance) |
-| **Optimizer / Loss** | Adam (lr=0.001), sparse_categorical_crossentropy |
-| **Callbacks** | EarlyStopping (patience=20, monitor val_loss), ReduceLROnPlateau (factor=0.5, patience=8) |
-| **Meta-model** | GradientBoostingClassifier (n_estimators=200, max_depth=4, lr=0.1, subsample=0.8) เรียนจาก probability output ของ LSTM+BiLSTM รวมกัน (stacking) |
+| **FVG** (Fair Value Gap) | "ช่องว่างราคา" ที่เกิดจากราคาวิ่งเร็วจนข้ามแท่งไม่ทัน |
+| **Order Block** | แท่งเทียนสุดท้ายก่อนราคาพลิกกลับแรง ๆ (จุดที่รายใหญ่อาจเข้าซื้อ/ขาย) |
+| **BOS / CHoCH** | จุดที่แนวโน้มราคา "ทะลุแนว" ต่อ (BOS) หรือ "เปลี่ยนทิศ" (CHoCH) |
 
-**Class distribution ของ target (หลังปรับ threshold เป็น 0.3%):**
-Down 19.5% / Neutral 58.1% / Up 22.4% — ข้อมูลไม่สมดุล จึงต้องใช้ class weighting
+**กลุ่ม C: รูปแบบแท่งเทียน (Candlestick)**
+> Engulfing (กลืนแท่งก่อน), Hammer/Shooting Star (แท่งกลับตัว), Doji (แท่งลังเล), Inside/Outside Bar
 
----
+จากนั้นใช้เทคนิค **Mutual Information** (วัดว่าตัวแปรไหน "บอกใบ้" คำตอบได้เก่งที่สุด) คัดเหลือ **15 ตัวที่ดีที่สุด** เพื่อไม่ให้โมเดลสับสนกับตัวแปรที่ไม่ช่วยอะไร — ตัวที่ติดอันดับต้น ๆ คือ ATR%, ATR, BB Width, MACD, RSI
 
-### 4. ผลลัพธ์บน Test Set
+### 3️⃣ ตั้งเป้าคำตอบ (Label) — ทายอะไร
 
-| โมเดล | Accuracy |
+ดูราคาปิด **อีก 3 ชั่วโมงข้างหน้า** เทียบกับตอนนี้:
+
+```
+เปลี่ยนแปลง > +0.3%  →  "Up"      (22.4% ของข้อมูล)
+เปลี่ยนแปลง < -0.3%  →  "Down"    (19.5% ของข้อมูล)
+อยู่ระหว่างนั้น       →  "Neutral" (58.1% ของข้อมูล)   ← เยอะสุด ทำให้ข้อมูลไม่สมดุล
+```
+
+### 4️⃣ แบ่งข้อมูล (Train / Val / Test) — แบ่งยังไงไม่ให้โกง
+
+⚠️ **ห้ามสุ่มแบ่ง** เพราะเป็นข้อมูลอนุกรมเวลา (ถ้าสุ่ม โมเดลจะแอบเห็น "อนาคต" ตอนเทรน) จึงแบ่งเรียงตามเวลาจริง:
+
+```
+[══════ Train 80% ══════][══ Val 10% ══][══ Test 10% ══]
+   (อดีตสุด)                                (ล่าสุดสุด)
+```
+
+- ก่อนแบ่ง ต้อง "มัดรวม" ข้อมูลเป็นช่วง ๆ ก่อน (Sequence) — เอาข้อมูลย้อนหลัง **48 แท่ง (~2 วัน)** มัดเป็น 1 ตัวอย่าง เพื่อให้โมเดลเห็น "บริบท" ไม่ใช่แค่แท่งเดียว
+- ได้ตัวอย่างสำหรับเทรนจริง **Train 8,216 / Val 1,027 / Test 1,027**
+- ปรับสเกลตัวเลข (StandardScaler) โดย **เรียนรู้ค่าเฉลี่ย/ส่วนเบี่ยงเบนจาก Train เท่านั้น** แล้วเอาไปใช้กับ Val/Test — ป้องกันไม่ให้ข้อมูลอนาคตรั่วเข้ามาปนตอนเทรน
+
+### 5️⃣ เทรนโมเดล (Training) — เทรนยังไง
+
+เทรน **2 โมเดลแยกกัน** แล้วเอามารวมพลังทีหลัง:
+
+| โมเดล | ลักษณะ |
+|---|---|
+| **LSTM** | อ่านข้อมูลย้อนหลังตามลำดับเวลา (อดีต → ปัจจุบัน) |
+| **BiLSTM** | อ่านสองทิศทาง (อดีต→ปัจจุบัน และปัจจุบัน→อดีต) จับรูปแบบได้ละเอียดขึ้น |
+
+ทั้งสองมีโครงสร้างคล้ายกัน: `LSTM(32) → LSTM(16) → Dense(8) → Dense(3, ทายคลาส)` พร้อมเทคนิคกันโมเดล "จำ" มากเกินไป (Overfitting) คือ Dropout, BatchNorm, L2 Regularization
+
+เทคนิคที่ใช้ระหว่างเทรน:
+- **Class Weight** — ถ่วงน้ำหนักให้คลาส Down/Up ที่มีน้อยกว่า ไม่ให้โมเดลเอียงไปทาย Neutral อย่างเดียว
+- **Early Stopping** — หยุดเทรนอัตโนมัติถ้าไม่ดีขึ้นแล้ว (กันเสียเวลา/overfit)
+- **Reduce LR on Plateau** — ถ้าผลนิ่ง ๆ ก็ลดอัตราการเรียนรู้ลงให้ละเอียดขึ้น
+
+จากนั้นทำ **Stacking Ensemble**: เอา "ความน่าจะเป็นของแต่ละคลาส" ที่ LSTM และ BiLSTM ทายไว้ มาต่อกัน แล้วส่งให้โมเดลตัวที่ 3 คือ **GradientBoostingClassifier** เรียนรู้อีกชั้นว่าจะเชื่อโมเดลไหนตอนไหน → เป็นคำตอบสุดท้าย
+
+### 6️⃣ ทดสอบผล (Testing) — วัดผลยังไง
+
+เอา Test set (ข้อมูลที่โมเดลไม่เคยเห็นเลย) ผ่านขั้นตอนเดียวกับตอนเทรน (LSTM+BiLSTM → ต่อผลลัพธ์ → GradientBoosting) แล้ววัดด้วย:
+
+- **Accuracy** — ทายถูกกี่ % โดยรวม
+- **Classification Report** — precision/recall/f1 แยกตามคลาส Down/Neutral/Up
+- **Confusion Matrix** — ดูว่าโมเดลสับสนทายผิดไปเป็นคลาสไหนบ่อย
+
+### 📊 ผลลัพธ์ที่ได้
+
+| โมเดล | Accuracy บน Test |
 |---|---|
 | LSTM (เดี่ยว) | 31.26% |
 | BiLSTM (เดี่ยว) | 32.23% |
-| **Ensemble (Stacking)** | **48.49%** |
+| **Ensemble (รวมพลัง)** | **48.49%** |
 
-**Classification Report (Ensemble):**
-
-| Class | Precision | Recall | F1-score | Support |
-|---|---|---|---|---|
-| Down | 0.24 | 0.15 | 0.19 | 234 |
-| Neutral | 0.55 | 0.79 | 0.65 | 546 |
-| Up | 0.31 | 0.13 | 0.18 | 247 |
-| **Accuracy** | | | **0.48** | 1027 |
-| Macro avg | 0.37 | 0.36 | 0.34 | 1027 |
-| Weighted avg | 0.42 | 0.48 | 0.43 | 1027 |
-
-**ข้อสังเกตสำคัญ:**
-- โมเดลเดี่ยว (LSTM/BiLSTM) แม่นยำต่ำกว่าการเดาสุ่มของคลาสส่วนใหญ่ (Neutral 58%) แต่เมื่อ stack ผ่าน Gradient Boosting ความแม่นยำโดยรวมดีขึ้นชัดเจน
-- โมเดลยัง**เอนเอียงไปทาย Neutral มากเกินไป** (recall 79%) ขณะที่ทาย Down/Up ได้ recall ต่ำ (~13–15%) — สะท้อนว่าโมเดลยังไม่จับสัญญาณการกลับตัวได้ดีนัก เหมาะกับงานต่อยอด เช่น ปรับ threshold, เพิ่มฟีเจอร์ momentum, หรือใช้ focal loss
+> ✅ การรวมพลัง (Stacking) ช่วยให้แม่นขึ้นชัดเจนจากโมเดลเดี่ยว
+> ⚠️ แต่โมเดลยังเอนเอียงทาย **"Neutral" มากเกินไป** (recall 79%) ในขณะที่ทาย Down/Up ได้แม่นน้อย (recall ~13-15%) — จุดนี้คือสิ่งที่ควรพัฒนาต่อ
 
 ---
 
-### 5. Artifacts ที่บันทึกไว้
+### 📁 ผลลัพธ์ที่ถูกบันทึกไว้
 
 ```
 models/
-├── improved_lstm.keras
-├── improved_bilstm.keras
-├── improved_meta.pkl          # GradientBoosting meta-model
-├── improved_scaler.pkl        # StandardScaler
-├── improved_features.pkl      # รายชื่อ 15 features ที่เลือก
-└── improved_config.pkl        # time_steps=48, threshold=0.003
+├── improved_lstm.keras        # โมเดล LSTM ที่เทรนเสร็จ
+├── improved_bilstm.keras      # โมเดล BiLSTM ที่เทรนเสร็จ
+├── improved_meta.pkl          # โมเดลรวมพลัง GradientBoosting
+├── improved_scaler.pkl        # ตัวปรับสเกลข้อมูล
+├── improved_features.pkl      # รายชื่อ 15 features ที่เลือกใช้
+└── improved_config.pkl        # การตั้งค่า (time_steps=48, threshold=0.3%)
 
 data/
-├── train_data.csv / val_data.csv / test_data.csv
-├── full_features.csv          # ก่อน feature selection (48 features)
-└── raw_data.csv               # ราคาดิบจาก yfinance
+├── train_data.csv / val_data.csv / test_data.csv   # ข้อมูลแบ่งแล้ว
+├── full_features.csv          # ข้อมูลก่อนคัดฟีเจอร์ (48 ตัว)
+└── raw_data.csv                # ข้อมูลดิบจาก yfinance
 ```
 
 ---
 
-### 6. Top Features (จัดอันดับด้วย Mutual Information)
+### 🔜 ทำต่อยังไงดี
 
-1. `Gold_ATR_Pct`
-2. `Gold_ATR`
-3. `Gold_BB_Width`
-4. `Gold_MACD`
-5. `Gold_MACD_Signal`
-6. `Gold_RSI`
-7. `Gold_Return_72`, `Gold_Return_12`, `Gold_Return_24`
-8. `BOS_Bearish`, `CHoCH_Bullish` *(ฟีเจอร์จาก ICT)*
-9. `OB_Net_20` *(Order Block net score)*
-10. `Body_Ratio`, `Inside_Bar` *(candlestick features)*
-11. `VIX_Return_12`
-
-→ ฟีเจอร์ volatility (ATR, BB Width) มีอิทธิพลสูงสุด รองลงมาคือ momentum (MACD, RSI) และฟีเจอร์ ICT/candlestick ก็ติด Top 15 ด้วย ยืนยันว่าการเพิ่ม price-action pattern ช่วยเสริมสัญญาณได้จริง
-
----
-
-### 7. ข้อเสนอแนะสำหรับพัฒนาต่อ
-
-- แก้ class imbalance ด้วยเทคนิคอื่นเพิ่มเติม เช่น SMOTE บน sequence หรือ focal loss แทน class_weight เพียงอย่างเดียว
-- ทดลองปรับ threshold การ label (0.3%) ให้ตอบโจทย์ trading strategy จริง แล้ววัดผลเป็น backtest (เชื่อมกับ pipeline backtest ที่มีอยู่แล้วใน `Train.ipynb`)
-- เปรียบเทียบผลลัพธ์ classification นี้กับ XGBoost Classifier (Conviction) ที่มีอยู่ใน README เดิม เพื่อดูว่าแนวทาง Deep Learning + ICT ให้ Sharpe/Win Rate ดีกว่าหรือไม่เมื่อแปลงกลับเป็นกลยุทธ์เทรด
-- พิจารณาย้ายโค้ดจาก notebook เดี่ยวไปเป็นโมดูลใน `src/` (เช่น `src/ict_features.py`, `src/dl_models.py`) ให้สอดคล้องกับโครงสร้างโปรเจกต์เดิม
+- แก้ปัญหาโมเดลเอนเอียงทาย Neutral (ลอง focal loss, ปรับ threshold label ให้ห่างขึ้น)
+- นำผลลัพธ์นี้ไปทำ backtest จริง (คำนวณกำไร/ขาดทุน) เทียบกับ RF/XGBoost ในไปป์ไลน์หลักของ README
+- ย้ายฟังก์ชัน ICT pattern (FVG/OB/BOS-CHoCH) ไปเป็นโมดูลถาวรใน `src/` เพื่อใช้ร่วมกับ pipeline หลักได้
