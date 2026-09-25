@@ -5,19 +5,30 @@
 
 ### ภาพรวมทั้งหมดใน 1 รูป
 
+> 🟢 = ทำเสร็จแล้วในโน้ตบุ๊กปัจจุบัน &nbsp;&nbsp; 🔵 = แผนต่อยอด (ยังไม่ได้ทำ)
+
 ```
 flowchart TD
-    A["📥 ดึงข้อมูล 4 สินทรัพย์\nGold, DXY, VIX, SP500\n(2 ปีย้อนหลัง, ราย 1 ชม.)"] --> B["🛠️ สร้าง 48 Features\nIndicator ดั้งเดิม + ICT Pattern + แท่งเทียน"]
-    B --> C["🎯 ตั้งเป้าทาย (Label)\nราคาอีก 3 ชม.ข้างหน้า\nขึ้น>0.3% / ลง<-0.3% / เฉยๆ"]
-    C --> D["📉 คัดฟีเจอร์เหลือ 15 ตัว\n(Mutual Information)"]
-    D --> E["📦 ตัดเป็นช่วงเวลา\n48 แท่งย้อนหลัง = 1 ตัวอย่าง"]
-    E --> F["✂️ แบ่งข้อมูลตามเวลา\nTrain 80% → Val 10% → Test 10%"]
-    F --> G["🧠 เทรน 2 โมเดล\nLSTM  +  BiLSTM"]
-    G --> H["🤝 รวมพลัง (Stacking)\nGradientBoosting เรียนจากผลของทั้งคู่"]
-    H --> I["✅ ทดสอบกับ Test Set\nAccuracy / Confusion Matrix"]
+    A["📥 ดึงข้อมูล 4 สินทรัพย์\nGold, DXY, VIX, SP500\n(2 ปีย้อนหลัง, ราย 1 ชม.)"]:::done --> B["🛠️ สร้าง 48 Features\nIndicator ดั้งเดิม + ICT Pattern + แท่งเทียน"]:::done
+    B --> C["🎯 ตั้งเป้าทาย (Label)\nราคาอีก 3 ชม.ข้างหน้า\nขึ้น>0.3% / ลง<-0.3% / เฉยๆ"]:::done
+    C --> D["📉 คัดฟีเจอร์เหลือ 15 ตัว\n(Mutual Information)"]:::done
+    D --> E["📦 ตัดเป็นช่วงเวลา\n48 แท่งย้อนหลัง = 1 ตัวอย่าง"]:::done
+    E --> F["✂️ แบ่งข้อมูลตามเวลา\nTrain 80% → Val 10% → Test 10%"]:::done
+    F --> G["🧠 เทรน 2 โมเดล\nLSTM  +  BiLSTM"]:::done
+    G --> H["🤝 รวมพลัง (Stacking)\nGradientBoosting เรียนจากผลของทั้งคู่"]:::done
+    H --> I["✅ ทดสอบกับ Test Set\nAccuracy / Confusion Matrix"]:::done
+    I --> J1["📊 Backtesting\nจำลองเทรดย้อนหลัง (PnL, Sharpe, Drawdown)"]:::todo
+    I --> J2["📡 Paper Trading\nจำลองเทรดจริงแบบ Real-time (1h bar)"]:::todo
+    J1 --> K["🚀 นำไปใช้จริง / ตัดสินใจกลยุทธ์"]:::todo
+    J2 --> K
+
+    classDef done fill:#d4f7dc,stroke:#2e7d32,color:#1b1b1b
+    classDef todo fill:#dbe9ff,stroke:#1565c0,color:#1b1b1b,stroke-dasharray: 4 3
 ```
 
     Loading
+
+**สรุปสั้น:** ตอนนี้ไปป์ไลน์ทำถึงขั้น "ทดสอบกับ Test Set" แล้ว (วัด accuracy ได้ 48.49%) แต่ **ยังไม่ได้เอาไปทดลองเทรดจริง** — ขั้นถัดไปที่ควรทำคือ (1) **Backtesting** เอาผลทำนายไปจำลองเทรดย้อนหลังว่าถ้าเทรดตามจริงจะกำไร/ขาดทุนเท่าไหร่ (แบบเดียวกับที่ทำใน `Train.ipynb` ของไปป์ไลน์หลัก) และ (2) **Paper Trading** ทดลองรันแบบ real-time ทุกชั่วโมงโดยยังไม่ใช้เงินจริง เพื่อเช็คว่าโมเดลยังทำงานได้ดีกับข้อมูลสดหรือไม่ ก่อนตัดสินใจนำไปใช้จริง
 
 ---
 
