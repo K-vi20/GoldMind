@@ -1,118 +1,124 @@
-# 🌟 GoldMind: Machine Learning & Quantitative Forecasting for Gold (XAU/USD)
+## 🧠 LSTM–BiLSTM Ensemble Classifier (ICT Pattern-Based) — โมดูลเสริมสำหรับ GoldMind
 
-An end-to-end, production-grade Machine Learning and Quantitative Trading framework for **Gold (XAU/USD)** hourly forecasting. 
+> ส่วนนี้สรุปจากโน้ตบุ๊กทดลอง (`.ipynb`) ที่ใช้แนวทาง **Deep Learning แบบ Sequence Classification**
+> ต่างจากไปป์ไลน์หลักของ GoldMind ที่ใช้ Random Forest / XGBoost แบบ Regression บน 1-hour bar
+> โมดูลนี้เป็นแนวทางเสริม (alternative track) ที่โฟกัส **ทำนายทิศทาง (Up / Down / Neutral)** โดยผสาน
+> Technical Indicators แบบดั้งเดิมเข้ากับ **ICT (Inner Circle Trader) Price Action Patterns**
 
-GoldMind addresses the subtle yet critical pitfalls of financial machine learning: **non-stationarity**, **lookahead bias (data leakage)**, **asymmetric positive drift**, and **transaction cost reality**.
+แนะนำให้เพิ่มเป็นหัวข้อใหม่ในโครงสร้างเดิม เช่น `## 🧬 Alternative Track: Deep Learning Directional Classifier` ต่อจากหัวข้อ "Summary of Out-of-Sample Results"
 
 ---
 
-## 📌 Architecture & Pipeline
+### 1. ภาพรวมแนวคิด
 
-```mermaid
-flowchart TD
-    A["Raw XAU/USD 1-Minute Data\n(~730,000 bars)"] --> B["Resample to 1-Hour OHLCV\n(12,230 bars)"]
-    B --> C["Exploratory Data Analysis\n(Eda.ipynb)"]
-    B --> D["Stationary Feature Engineering\n(src/features.py)"]
-    D --> E["45+ Scale-Invariant Features\n(Features.ipynb)"]
-    E --> F["Chronological Time-Series Split\n(Train 72% | Val 8% | Test 20%)"]
-    F --> G["Feature Selection (RF Importance)\nStrictly on Train Split ONLY"]
-    G --> H["Model Training\n(Train.ipynb)"]
-    H --> I["Random Forest Regressor"]
-    H --> J["XGBoost Regressor (Early Stopping)"]
-    H --> K["XGBoost Classifier (Directional Conviction)"]
-    I & J & K --> L["Out-of-Sample Evaluation & Backtest\n(Spread = 0.02%, Trade PnL, Sharpe, Drawdown)"]
+โมเดลนี้ตั้งเป้าทำนาย **ทิศทางราคาทองใน 3 ชั่วโมงข้างหน้า** เป็น 3 คลาส (Down / Neutral / Up)
+โดยรวมสัญญาณจาก 2 กลุ่ม:
+
+- **Technical Indicators แบบดั้งเดิม** — RSI, MACD, Bollinger Band Width, ATR (normalized), Stochastic, Return หลายช่วงเวลา (4h/12h/24h/72h), Cross-asset returns (DXY, VIX, SP500)
+- **ICT Price Action Patterns** — Fair Value Gap (FVG), Order Block (OB), Break of Structure / Change of Character (BOS/CHoCH), และรูปแบบแท่งเทียน (Engulfing, Hammer, Shooting Star, Doji, Inside/Outside Bar)
+
+จุดเด่นคือการนำแนวคิด ICT ซึ่งปกติใช้ในการเทรดด้วยตาเปล่า มาแปลงเป็นฟีเจอร์เชิงตัวเลขให้โมเดลเรียนรู้ได้
+
+---
+
+### 2. Pipeline
+
+```
+1. Data Collection      → yfinance: Gold (GC=F), DXY, VIX, SP500 (2 ปีย้อนหลัง, timeframe 1H)
+2. Feature Engineering  → Indicators + ICT Patterns + Candlestick Patterns (48 features)
+3. Target Labeling      → future_return (3-bar ahead) > 0.3% = Up, < -0.3% = Down, else Neutral
+4. Feature Selection    → Mutual Information → เลือก Top 15 features
+5. Sequencing           → sliding window 48 timesteps (≈ 2 วัน) ต่อ 1 sample
+6. Train/Val/Test Split → Walk-forward แบบ chronological (80% / 10% / 10%)
+7. Scaling              → StandardScaler (fit บน train เท่านั้น)
+8. Model Training       → LSTM + BiLSTM (แยกเทรน)
+9. Stacking Ensemble    → ใช้ output ของ LSTM + BiLSTM ป้อนต่อให้ GradientBoostingClassifier (meta-model)
+10. Evaluation          → Accuracy, Classification Report, Confusion Matrix
 ```
 
 ---
 
-## 💡 Key Methodological Principles
+### 3. สถาปัตยกรรมโมเดล
 
-### 1. Scale-Invariance & Stationarity (Why raw prices fail)
-Tree-based models (Random Forest, XGBoost) split on raw numeric thresholds. When applied to trending assets like Gold:
-* If raw price levels (e.g. `ma_200`, `bb_upper`, `close_lag_1h`) are used, test samples in a bull market fall completely outside the training partition range.
-* The tree maps all test data to a single extreme leaf node, leading to catastrophic test-set degradation.
-* **GoldMind's Solution:** All 45+ indicators are strictly normalized relative to current price or bounded:
-  - Relative MA distances: $(Close / MA_w) - 1.0$
-  - Normalized ATR: $ATR_{14} / Close$
-  - Bollinger Bands: $\%B = \frac{Close - Lower}{Upper - Lower}$, $BandWidth = \frac{Upper - Lower}{MA}$
-  - Normalized MACD: $\frac{EMA_{12} - EMA_{26}}{Close}$
-  - Cyclical Time Encodings: $\sin/\cos(Hour)$, $\sin/\cos(DayOfWeek)$
-  - Market Gap Flag: Detection of weekend / exchange holiday reopening jumps.
+| ส่วนประกอบ | รายละเอียด |
+|---|---|
+| **LSTM** | LSTM(32, tanh) → BatchNorm → Dropout(0.3) → LSTM(16, tanh) → BatchNorm → Dropout(0.3) → Dense(8, relu) → BatchNorm → Dense(3, softmax) |
+| **BiLSTM** | โครงสร้างเดียวกันแต่ห่อด้วย `Bidirectional` ทุกชั้น LSTM |
+| **Regularization** | L2 (1e-4) ทุกชั้นหลัก, Dropout 0.3, Class weighting (แก้ปัญหา class imbalance) |
+| **Optimizer / Loss** | Adam (lr=0.001), sparse_categorical_crossentropy |
+| **Callbacks** | EarlyStopping (patience=20, monitor val_loss), ReduceLROnPlateau (factor=0.5, patience=8) |
+| **Meta-model** | GradientBoostingClassifier (n_estimators=200, max_depth=4, lr=0.1, subsample=0.8) เรียนจาก probability output ของ LSTM+BiLSTM รวมกัน (stacking) |
 
-### 2. Zero Data Leakage
-* In naive pipelines, feature selection or scaling is run on the entire dataset prior to splitting, leaking future distribution into the training set.
-* In GoldMind, the **chronological time-series split is executed FIRST**. Feature importance ranking and top feature selection are fitted **strictly on the Training partition**.
-
-### 3. Realistic Transaction Costs & Execution Metrics
-* Every trade incurs a spread cost of **0.02% (2 basis points, ~\$0.50/ounce)**, representing realistic broker bid-ask spread and commission.
-* Performance reporting distinguishes between **Hourly Bar Win Rate** (% of hours with positive return) and **Trade Win Rate** (% of round-trip trades from entry to exit with positive net PnL), alongside **Profit Factor** and **Annualized Sharpe Ratio** ($\times \sqrt{6000}$).
+**Class distribution ของ target (หลังปรับ threshold เป็น 0.3%):**
+Down 19.5% / Neutral 58.1% / Up 22.4% — ข้อมูลไม่สมดุล จึงต้องใช้ class weighting
 
 ---
 
-## 📂 Project Structure
+### 4. ผลลัพธ์บน Test Set
+
+| โมเดล | Accuracy |
+|---|---|
+| LSTM (เดี่ยว) | 31.26% |
+| BiLSTM (เดี่ยว) | 32.23% |
+| **Ensemble (Stacking)** | **48.49%** |
+
+**Classification Report (Ensemble):**
+
+| Class | Precision | Recall | F1-score | Support |
+|---|---|---|---|---|
+| Down | 0.24 | 0.15 | 0.19 | 234 |
+| Neutral | 0.55 | 0.79 | 0.65 | 546 |
+| Up | 0.31 | 0.13 | 0.18 | 247 |
+| **Accuracy** | | | **0.48** | 1027 |
+| Macro avg | 0.37 | 0.36 | 0.34 | 1027 |
+| Weighted avg | 0.42 | 0.48 | 0.43 | 1027 |
+
+**ข้อสังเกตสำคัญ:**
+- โมเดลเดี่ยว (LSTM/BiLSTM) แม่นยำต่ำกว่าการเดาสุ่มของคลาสส่วนใหญ่ (Neutral 58%) แต่เมื่อ stack ผ่าน Gradient Boosting ความแม่นยำโดยรวมดีขึ้นชัดเจน
+- โมเดลยัง**เอนเอียงไปทาย Neutral มากเกินไป** (recall 79%) ขณะที่ทาย Down/Up ได้ recall ต่ำ (~13–15%) — สะท้อนว่าโมเดลยังไม่จับสัญญาณการกลับตัวได้ดีนัก เหมาะกับงานต่อยอด เช่น ปรับ threshold, เพิ่มฟีเจอร์ momentum, หรือใช้ focal loss
+
+---
+
+### 5. Artifacts ที่บันทึกไว้
 
 ```
-GoldMind/
-├── data/
-│   └── XAU_1m_data.csv             # 1-minute historical gold data
-├── eda_output/                     # Exported EDA charts and yearly statistics
-│   ├── price_volume_trend.png
-│   ├── return_distribution.png
-│   ├── hourly_volatility.png
-│   ├── autocorrelation_clustering.png
-│   └── yearly_summary.csv
-├── model_output/                   # Model artifacts and backtest results
-│   ├── metrics_comparison.csv
-│   ├── backtest_summary.csv
-│   ├── feature_importances.csv
-│   ├── selected_features.csv
-│   ├── test_predictions.csv
-│   ├── feature_importances_demo.png
-│   └── strategy_equity_curve.png
-├── src/
-│   ├── __init__.py
-│   └── features.py                 # Core feature engineering & selection module
-├── Eda.ipynb                       # Exploratory Data Analysis & ARCH clustering
-├── Features.ipynb                  # Feature generation & stationarity validation
-├── Train.ipynb                     # Training pipeline, model evaluation & quant backtest
-├── build_all_notebooks.py          # Generator script for all Jupyter notebooks
-└── README.md                       # Documentation
+models/
+├── improved_lstm.keras
+├── improved_bilstm.keras
+├── improved_meta.pkl          # GradientBoosting meta-model
+├── improved_scaler.pkl        # StandardScaler
+├── improved_features.pkl      # รายชื่อ 15 features ที่เลือก
+└── improved_config.pkl        # time_steps=48, threshold=0.003
+
+data/
+├── train_data.csv / val_data.csv / test_data.csv
+├── full_features.csv          # ก่อน feature selection (48 features)
+└── raw_data.csv               # ราคาดิบจาก yfinance
 ```
 
 ---
 
-## 📊 Summary of Out-of-Sample Results (Test Set)
+### 6. Top Features (จัดอันดับด้วย Mutual Information)
 
-| Metric | Random Forest | XGBoost Regressor | XGBoost Classifier (Conviction) | Buy & Hold Benchmark |
-| :--- | :---: | :---: | :---: | :---: |
-| **Directional Accuracy** | 52.54% | **54.09%** | **54.28%** | N/A |
-| **MAE** | 0.002475 | **0.002455** | N/A | N/A |
-| **RMSE** | 0.004958 | **0.004939** | N/A | N/A |
-| **R² Score** | -0.00760 | **+0.00032** | N/A | N/A |
-| **Total Net Return** | 45.62% | **118.74%** | 6.57% | 52.27% |
-| **Annualized Sharpe** | 2.64 | **5.32** | 0.63 | 2.93 |
-| **Max Drawdown** | 13.83% | **8.62%** | 12.87% | 18.91% |
-| **Trade Win Rate** | 55.30% | 54.51% | **58.79%** | N/A |
-| **Profit Factor** | 1.52 | **2.24** | 1.19 | N/A |
+1. `Gold_ATR_Pct`
+2. `Gold_ATR`
+3. `Gold_BB_Width`
+4. `Gold_MACD`
+5. `Gold_MACD_Signal`
+6. `Gold_RSI`
+7. `Gold_Return_72`, `Gold_Return_12`, `Gold_Return_24`
+8. `BOS_Bearish`, `CHoCH_Bullish` *(ฟีเจอร์จาก ICT)*
+9. `OB_Net_20` *(Order Block net score)*
+10. `Body_Ratio`, `Inside_Bar` *(candlestick features)*
+11. `VIX_Return_12`
+
+→ ฟีเจอร์ volatility (ATR, BB Width) มีอิทธิพลสูงสุด รองลงมาคือ momentum (MACD, RSI) และฟีเจอร์ ICT/candlestick ก็ติด Top 15 ด้วย ยืนยันว่าการเพิ่ม price-action pattern ช่วยเสริมสัญญาณได้จริง
 
 ---
 
-## 🚀 How to Run
+### 7. ข้อเสนอแนะสำหรับพัฒนาต่อ
 
-### 1. Prerequisites
-Ensure Python 3.10+ is installed with the required dependencies:
-```bash
-pip install pandas numpy scikit-learn xgboost matplotlib jupyter
-```
-
-### 2. Running via Jupyter / VS Code
-Open the notebooks in order:
-1. `Eda.ipynb`: Run all cells to view data distributions, market session volatility, and ARCH volatility clustering.
-2. `Features.ipynb`: Generate and verify all stationary technical indicators.
-3. `Train.ipynb`: Train models, review out-of-sample metrics, and view backtest equity curves.
-
-### 3. Rebuilding Notebooks
-To programmatically regenerate all three notebooks from source:
-```bash
-python build_all_notebooks.py
-```
+- แก้ class imbalance ด้วยเทคนิคอื่นเพิ่มเติม เช่น SMOTE บน sequence หรือ focal loss แทน class_weight เพียงอย่างเดียว
+- ทดลองปรับ threshold การ label (0.3%) ให้ตอบโจทย์ trading strategy จริง แล้ววัดผลเป็น backtest (เชื่อมกับ pipeline backtest ที่มีอยู่แล้วใน `Train.ipynb`)
+- เปรียบเทียบผลลัพธ์ classification นี้กับ XGBoost Classifier (Conviction) ที่มีอยู่ใน README เดิม เพื่อดูว่าแนวทาง Deep Learning + ICT ให้ Sharpe/Win Rate ดีกว่าหรือไม่เมื่อแปลงกลับเป็นกลยุทธ์เทรด
+- พิจารณาย้ายโค้ดจาก notebook เดี่ยวไปเป็นโมดูลใน `src/` (เช่น `src/ict_features.py`, `src/dl_models.py`) ให้สอดคล้องกับโครงสร้างโปรเจกต์เดิม
