@@ -8,28 +8,40 @@
 
 > 🟢 = ทำเสร็จแล้วในโน้ตบุ๊กปัจจุบัน &nbsp;&nbsp; 🔵 = แผนต่อยอด (ยังไม่ได้ทำ)
 
-```
+```mermaid
 flowchart TD
-    A["📥 ดึงข้อมูล 4 สินทรัพย์\nGold, DXY, VIX, SP500\n(2 ปีย้อนหลัง, ราย 1 ชม.)"]:::done --> A2["🔍 EDA #1: สำรวจข้อมูลดิบ\nกราฟราคา / Return Distribution / Correlation"]:::done
-    A2 --> B["🛠️ สร้าง 48 Features\nIndicator ดั้งเดิม + ICT Pattern + แท่งเทียน"]:::done
-    B --> B2["🔍 EDA #2: สำรวจฟีเจอร์\nClass Distribution / ความถี่ ICT Pattern / Correlation Heatmap"]:::done
-    B2 --> C["🎯 ตั้งเป้าทาย (Label)\nราคาอีก 3 ชม.ข้างหน้า\nขึ้น>0.3% / ลง<-0.3% / เฉยๆ"]:::done
-    C --> D["📉 คัดฟีเจอร์เหลือ 15 ตัว\n(Mutual Information)"]:::done
-    D --> E["📦 ตัดเป็นช่วงเวลา\n48 แท่งย้อนหลัง = 1 ตัวอย่าง"]:::done
-    E --> F["✂️ แบ่งข้อมูลตามเวลา\nTrain 80% → Val 10% → Test 10%"]:::done
-    F --> G["🧠 เทรน 2 โมเดล\nLSTM  +  BiLSTM"]:::done
-    G --> H["🤝 รวมพลัง (Stacking)\nGradientBoosting เรียนจากผลของทั้งคู่"]:::done
-    H --> I["✅ ทดสอบกับ Test Set\nAccuracy / Confusion Matrix"]:::done
-    I --> J1["📊 Backtesting\nจำลองเทรดย้อนหลัง (PnL, Sharpe, Drawdown)"]:::todo
-    I --> J2["📡 Paper Trading\nจำลองเทรดจริงแบบ Real-time (1h bar)"]:::todo
+    A["📥 ดึงข้อมูล 4 สินทรัพย์<br/>Gold, DXY, VIX, SP500<br/>(2 ปีย้อนหลัง, ราย 1 ชม.)"]:::done --> A2["🔍 EDA #1: สำรวจข้อมูลดิบ<br/>กราฟราคา / Return Distribution / Correlation"]:::done
+
+    A2 --> B["🛠️ สร้าง 48 Features<br/>Indicator ดั้งเดิม + ICT Pattern + แท่งเทียน"]:::done
+
+    B --> B2["🔍 EDA #2: สำรวจฟีเจอร์<br/>Class Distribution / ความถี่ ICT Pattern / Correlation Heatmap"]:::done
+
+    B2 --> C["🎯 ตั้งเป้าทาย (Label)<br/>ราคาอีก 3 ชม.ข้างหน้า<br/>ขึ้น > 0.3% / ลง < -0.3% / เฉยๆ"]:::done
+
+    C --> D["📉 คัดฟีเจอร์เหลือ 15 ตัว<br/>(Mutual Information)"]:::done
+
+    D --> E["📦 ตัดเป็นช่วงเวลา<br/>48 แท่งย้อนหลัง = 1 ตัวอย่าง"]:::done
+
+    E --> F["✂️ แบ่งข้อมูลตามเวลา<br/>Train 80% → Val 10% → Test 10%"]:::done
+
+    F --> G["🧠 เทรน 2 โมเดล<br/>LSTM + BiLSTM"]:::done
+
+    G --> H["🤝 รวมพลัง (Stacking)<br/>GradientBoosting เรียนจากผลของทั้งคู่"]:::done
+
+    H --> I["✅ ทดสอบกับ Test Set<br/>Accuracy / Confusion Matrix"]:::done
+
+    I --> J1["📊 Backtesting<br/>จำลองเทรดย้อนหลัง (PnL, Sharpe, Drawdown)"]:::todo
+
+    I --> J2["📡 Paper Trading<br/>จำลองเทรดจริงแบบ Real-time (1h bar)"]:::todo
+
     J1 --> K["🚀 นำไปใช้จริง / ตัดสินใจกลยุทธ์"]:::todo
     J2 --> K
 
     classDef done fill:#d4f7dc,stroke:#2e7d32,color:#1b1b1b
-    classDef todo fill:#dbe9ff,stroke:#1565c0,color:#1b1b1b,stroke-dasharray: 4 3
+    classDef todo fill:#dbe9ff,stroke:#1565c0,color:#1b1b1b,stroke-dasharray:4 3
 ```
 
-    Loading
+
 
 **สรุปสั้น:** ตอนนี้ไปป์ไลน์ทำถึงขั้น "ทดสอบกับ Test Set" แล้ว (accuracy 48.49%) และมีขั้นตอน **EDA ครบ 2 จุด** แล้ว (สำรวจข้อมูลดิบ + สำรวจฟีเจอร์) แต่ **ยังไม่ได้เอาไปทดลองเทรดจริง** — ขั้นถัดไปคือ Backtesting และ Paper Trading
 
