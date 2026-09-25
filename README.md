@@ -106,6 +106,72 @@ GoldMind/
 
 ---
 
+## 📓 รายละเอียดของแต่ละ Notebook
+
+โปรเจกต์นี้แบ่งขั้นตอนการทำงานออกเป็น 3 Notebook หลัก โดยแต่ละไฟล์รับผิดชอบหน้าที่ที่ชัดเจนแยกจากกัน เพื่อให้ไปป์ไลน์ทั้งหมดตรวจสอบและทำซ้ำ (reproducible) ได้ง่าย
+
+### 1️⃣ `Eda.ipynb` — การวิเคราะห์ข้อมูลเชิงสำรวจ (Exploratory Data Analysis)
+
+Notebook นี้ทำหน้าที่ตรวจสอบคุณภาพของข้อมูลดิบ และทำความเข้าใจพฤติกรรมของราคาทองคำก่อนเริ่มสร้างฟีเจอร์ใด ๆ ประกอบด้วยขั้นตอนดังนี้:
+
+1. **โหลดข้อมูลและ Resample** — อ่านข้อมูลราคาทองคำรายนาที (1-minute OHLCV) แล้วแปลง (resample) เป็นแท่งเทียนรายชั่วโมงด้วยกฎ `Open=first, High=max, Low=min, Close=last, Volume=sum`
+2. **ตรวจสอบคุณภาพและความสมบูรณ์ของข้อมูล (Data Quality Checks)** — ตรวจหาค่าที่หายไป (missing values), timestamp ที่ซ้ำกัน, ความผิดปกติของ OHLC (เช่น High ต่ำกว่า Low), ราคาที่ไม่เป็นบวก, แท่งเทียนที่ Volume เป็นศูนย์ และช่องว่างของเวลา (gap) ที่เกิน 6 ชั่วโมงซึ่งมักเกิดจากวันหยุดสุดสัปดาห์หรือวันหยุดตลาด
+3. **กราฟแนวโน้มราคาและปริมาณการซื้อขาย** — พล็อตราคาปิดรายชั่วโมงคู่กับปริมาณการซื้อขาย เพื่อดูภาพรวมของแนวโน้มตลาดตลอดช่วงเวลาที่มีข้อมูล
+4. **การกระจายตัวของผลตอบแทน (Return Distribution)** — คำนวณค่าเฉลี่ย ส่วนเบี่ยงเบนมาตรฐาน ความเบ้ (skewness) ความโด่ง (excess kurtosis) และ Value at Risk (VaR 95%) ของผลตอบแทนรายชั่วโมง พร้อมเปรียบเทียบกับการกระจายแบบปกติ (Normal Distribution) เพื่อยืนยันลักษณะ **fat tails** ที่พบได้ทั่วไปในข้อมูลการเงิน
+5. **รูปแบบความผันผวนตามช่วงเวลา (Session Volatility)** — วิเคราะห์ความผันผวนเฉลี่ยแยกตามชั่วโมง (UTC) พร้อมไฮไลต์ช่วงตลาดลอนดอน (07–16 UTC) และตลาดนิวยอร์ก (12–20 UTC) เพื่อดูว่าความผันผวนสูงสุดเกิดขึ้นในช่วงใดของวัน
+6. **Autocorrelation และ Volatility Clustering (ARCH Effect)** — คำนวณค่า Autocorrelation Function (ACF) ทั้งของผลตอบแทนดิบ (เพื่อตรวจสอบสมมติฐาน Random Walk) และของผลตอบแทนสัมบูรณ์ (เพื่อตรวจจับปรากฏการณ์ volatility clustering แบบ ARCH ซึ่งเป็นคุณสมบัติสำคัญของสินทรัพย์ทางการเงิน)
+7. **ตารางสรุปผลรายปี (Yearly Summary)** — สรุปราคาเปิด/ปิด/สูงสุด/ต่ำสุด จำนวนแท่งเทียน ปริมาณการซื้อขายเฉลี่ย และผลตอบแทนรายปีของทองคำ แล้วบันทึกเป็นไฟล์ `yearly_summary.csv`
+
+📁 **ผลลัพธ์ที่ได้:** กราฟทั้งหมดถูกบันทึกไว้ในโฟลเดอร์ `eda_output/` ได้แก่ `price_volume_trend.png`, `return_distribution.png`, `hourly_volatility.png`, `autocorrelation_clustering.png` และ `yearly_summary.csv`
+
+---
+
+### 2️⃣ `Features.ipynb` — วิศวกรรมฟีเจอร์แบบ Stationary
+
+Notebook นี้สาธิตวิธีการสร้างฟีเจอร์ทางเทคนิคกว่า 45+ ตัวที่ **ไม่ขึ้นกับสเกลราคา (scale-invariant)** โดยเรียกใช้โมดูล `src/features.py` เป็นแกนหลัก:
+
+1. **โหลดและ Resample ข้อมูล** เช่นเดียวกับใน `Eda.ipynb`
+2. **สร้างฟีเจอร์ผ่านฟังก์ชัน `build_features()`** ซึ่งสร้างฟีเจอร์ทั้งหมด 52 ตัวจาก 12,230 แท่งเทียน แบ่งเป็นกลุ่มดังนี้:
+   - **ผลตอบแทนหลายช่วงเวลา (Multi-horizon Returns):** `ret_1` ถึง `ret_34`, `ret_240`
+   - **ผลตอบแทนย้อนหลังแบบ Autoregressive (Lag Features):** `ret_lag_1h` ถึง `ret_lag_10h`
+   - **ระยะห่างสัมพัทธ์จากเส้นค่าเฉลี่ยเคลื่อนที่:** `px_over_ma_5` ถึง `px_over_ma_200`
+   - **ความผันผวนและ ATR แบบ Normalized:** `vol_5` ถึง `vol_50`, `atr_pct_14`, `atr_pct_50`
+   - **Bollinger Bands แบบ Normalized:** `bb_pct_b`, `bb_width`
+   - **Wilder's RSI:** `rsi_7`, `rsi_14`, `rsi_21`
+   - **MACD แบบ Normalized:** `macd_norm`, `macd_signal_norm`, `macd_hist_norm`
+   - **Volume Z-score และอัตราส่วนปริมาณการซื้อขาย:** `vol_zscore_20`, `vol_ratio_ma_5` ฯลฯ
+   - **รูปทรงแท่งเทียน (Candle Geometry):** `candle_body`, `candle_upper_wick`, `candle_lower_wick`
+   - **การเข้ารหัสเวลาแบบวัฏจักรและ Session:** `hour_sin`, `hour_cos`, `dow_sin`, `dow_cos`, `is_market_gap`
+3. **ตรวจสอบ Stationarity** — ยืนยันว่าไม่มีคอลัมน์ราคาดิบ (เช่น `Close`, `ma_20`, `bb_upper`) หลงเหลืออยู่ในชุดฟีเจอร์ พร้อมแสดงสถิติสรุป (`describe()`) ของฟีเจอร์ตัวอย่างเพื่อยืนยันว่าค่าทั้งหมดอยู่ในช่วงที่มีขอบเขตแน่นอน (bounded)
+4. **สาธิตการคัดเลือกฟีเจอร์ (Feature Selection Demo)** — ใช้ `select_top_features()` โดย fit บนชุด Train เพียง 72% แรก (8,632 ตัวอย่าง) เท่านั้น เพื่อป้องกัน data leakage อย่างเคร่งครัด แล้วจัดอันดับ 15 ฟีเจอร์ที่สำคัญที่สุด เช่น `px_over_ma_20`, `candle_upper_wick`, `candle_lower_wick`, `px_over_ma_50`, `hl_range` เป็นต้น
+5. **แสดงกราฟ Feature Importance** — พล็อตกราฟแท่งแนวนอนของ 15 ฟีเจอร์ที่สำคัญที่สุดจาก Random Forest แล้วบันทึกเป็น `feature_importances_demo.png`
+
+---
+
+### 3️⃣ `Train.ipynb` — การเทรนโมเดล ประเมินผล และ Backtest กลยุทธ์
+
+Notebook หลักที่รวมทุกขั้นตอนของไปป์ไลน์เข้าด้วยกัน ตั้งแต่การเตรียมข้อมูลจนถึงการจำลองกลยุทธ์การเทรดจริง:
+
+1. **ตั้งค่าพารามิเตอร์หลัก (Configuration)** — กำหนดค่าคงที่ที่สำคัญ เช่น จำนวนฟีเจอร์ที่คัดเลือก (`N_FEATURES_SELECTED = 20`), ขอบเขตเวลาพยากรณ์ (`TARGET_HORIZON = 1`), สัดส่วนชุดทดสอบ (`TEST_SIZE = 20%`), สัดส่วนชุด Validation (`VAL_SIZE = 10%` ของส่วน Train) และต้นทุน Spread (`SPREAD_PCT = 0.02%`)
+2. **โหลดข้อมูล สร้างฟีเจอร์ และสร้างตัวแปรเป้าหมาย** — เรียกใช้ `build_features()` และ `make_target()` เพื่อสร้างทั้งเป้าหมายแบบ Regression (ขนาดของผลตอบแทน) และแบบ Classification (ทิศทางขึ้น/ลง)
+3. **แบ่งข้อมูลตามลำดับเวลาก่อนเสมอ (Chronological Split First)** — แบ่งเป็น Train / Validation / Test ตามลำดับเวลาอย่างเคร่งครัด (ไม่มีการสุ่มหรือ shuffle) เพื่อจำลองสภาพแวดล้อมการเทรดจริงที่ไม่สามารถมองเห็นอนาคตได้
+4. **คัดเลือกฟีเจอร์บนชุด Train เท่านั้น** — เรียก `select_top_features()` โดยใช้ข้อมูลเฉพาะช่วง Train เพื่อคัดเลือก 20 ฟีเจอร์ที่มีนัยสำคัญที่สุด ก่อนนำไปกรองใช้กับชุด Validation และ Test
+5. **เทรนโมเดลทั้งสามตัว:**
+   - **Random Forest Regressor** (250 ต้นไม้, ความลึกสูงสุด 10)
+   - **XGBoost Regressor** พร้อม Early Stopping (สูงสุด 500 รอบ, หยุดหากไม่พัฒนาใน 40 รอบ)
+   - **XGBoost Classifier** สำหรับพยากรณ์ความน่าจะเป็นเชิงทิศทาง พร้อม Early Stopping เช่นกัน
+6. **ประเมินผลบนชุดทดสอบ (Out-of-Sample Evaluation)** — คำนวณ MAE, RMSE, R², Directional Accuracy สำหรับโมเดล Regression และ Accuracy กับ ROC-AUC สำหรับโมเดล Classifier
+7. **จำลองกลยุทธ์การเทรดและ Backtest (`run_backtest()`)** — แปลงค่าพยากรณ์เป็นสัญญาณซื้อ/ขาย (Long/Short) โดยหักต้นทุน Spread ทุกครั้งที่เปลี่ยนสถานะ แล้วคำนวณ:
+   - **Equity Curve** และ **Total Return**
+   - **Annualized Sharpe Ratio** (ปรับด้วย $\sqrt{6000}$ ชั่วโมงการเทรดต่อปี)
+   - **Max Drawdown**
+   - **Hourly Win Rate** เทียบกับ **Trade Win Rate** (คำนวณจากรอบการเทรดจริงตั้งแต่เข้าจนออก)
+   - **Profit Factor** (อัตราส่วนกำไรรวมต่อขาดทุนรวม)
+   - เปรียบเทียบกับกลยุทธ์ **Buy & Hold** เป็นเกณฑ์อ้างอิง
+8. **ส่งออกผลลัพธ์และโมเดลที่เทรนแล้ว (Export Artifacts)** — บันทึกไฟล์ทั้งหมดลงในโฟลเดอร์ `model_output/` ได้แก่ `metrics_comparison.csv`, `backtest_summary.csv`, `feature_importances.csv`, `selected_features.csv`, `test_predictions.csv` รวมถึงบันทึกโมเดลที่เทรนแล้วเป็นไฟล์ `rf_model.joblib`, `xgb_regressor.json`, `xgb_classifier.json` เพื่อให้สามารถนำไปใช้ต่อ (inference) ได้โดยไม่ต้องเทรนใหม่
+
+---
+
 ## 🚀 วิธีการใช้งาน
 
 ### 1. ข้อกำหนดเบื้องต้น (Prerequisites)
